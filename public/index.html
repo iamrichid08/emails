@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Email Sender</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-white mb-2">Bulk Email Sender</h1>
+            <p class="text-slate-400">Send personalized emails to multiple recipients via SMTP</p>
+            <div id="status" class="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800 border border-slate-700">
+                <span id="statusDot" class="w-2 h-2 rounded-full bg-yellow-500"></span>
+                <span id="statusText" class="text-sm text-slate-400">Checking SMTP status...</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-slate-800/50 backdrop-blur rounded-2xl border border-slate-700 p-6">
+                <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                    </svg>
+                    Email Configuration
+                </h2>
+
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm text-slate-400 mb-1">From Name</label>
+                            <input type="text" id="fromName" placeholder="Your Name" class="w-full px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-slate-400 mb-1">From Email</label>
+                            <input type="email" id="fromEmail" placeholder="sender@example.com" class="w-full px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Subject</label>
+                        <input type="text" id="subject" placeholder="Your email subject" class="w-full px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">HTML Content (use {{variable}} for personalization)</label>
+                        <textarea id="htmlContent" rows="8" placeholder="<h1>Hello {{name}}!</h1>&#10;<p>Welcome to our service.</p>" class="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono text-sm"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Attachments</label>
+                        <div class="flex items-center gap-2">
+                            <label class="cursor-pointer px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">
+                                <input type="file" id="attachments" multiple class="hidden" onchange="handleAttachments(this)">
+                                <span class="flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                                    </svg>
+                                    Choose Files
+                                </span>
+                            </label>
+                            <span id="attachmentNames" class="text-sm text-slate-400"></span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Variables Reference</label>
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <span class="px-2 py-1 bg-slate-700 rounded text-slate-300">{{name}}</span>
+                            <span class="px-2 py-1 bg-slate-700 rounded text-slate-300">{{email}}</span>
+                            <span class="px-2 py-1 bg-slate-700 rounded text-slate-300">{{company}}</span>
+                            <span class="px-2 py-1 bg-slate-700 rounded text-slate-300">{{custom_field}}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-800/50 backdrop-blur rounded-2xl border border-slate-700 p-6">
+                <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                    </svg>
+                    Recipients
+                </h2>
+
+                <div class="mb-4">
+                    <label class="block text-sm text-slate-400 mb-1">Add recipient</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="newName" placeholder="Name (optional)" class="flex-1 px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                        <input type="email" id="newEmail" placeholder="Email address" class="flex-1 px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                        <button type="button" onclick="addRecipient()" class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors">Add</button>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-slate-400">Recipient list:</span>
+                        <span id="recipientCount" class="text-sm font-medium text-blue-400">0 recipients</span>
+                    </div>
+                    <div id="recipientList" class="max-h-48 overflow-y-auto bg-slate-700/30 rounded-lg divide-y divide-slate-600">
+                        <div id="emptyState" class="py-8 text-center text-slate-500 text-sm">No recipients added yet</div>
+                    </div>
+                </div>
+
+                <div class="mb-4 p-3 bg-slate-700/30 rounded-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm text-slate-400">Import from file</label>
+                        <label class="cursor-pointer px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded transition-colors">
+                            <input type="file" id="importFile" accept=".txt,.csv" class="hidden" onchange="importFile(event)">
+                            Import TXT/CSV
+                        </label>
+                    </div>
+                    <p class="text-xs text-slate-500">TXT: one email per line | CSV: email,name format</p>
+                </div>
+
+                <div class="mb-4 p-3 bg-slate-700/30 rounded-lg">
+                    <label class="block text-sm text-slate-400 mb-2">Or paste JSON array</label>
+                    <textarea id="recipients" rows="3" placeholder='[{"name": "John", "email": "john@example.com"}]' class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono text-sm"></textarea>
+                </div>
+
+                <button id="sendBtn" onclick="sendBulkEmail()" disabled class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:from-slate-600 disabled:to-slate-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all flex items-center justify-center gap-2">
+                    <svg id="sendIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                    </svg>
+                    <span id="sendText">Send Emails</span>
+                </button>
+            </div>
+        </div>
+
+        <div id="results" class="mt-6 bg-slate-800/50 backdrop-blur rounded-2xl border border-slate-700 p-6 hidden">
+            <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                </svg>
+                Results
+            </h2>
+            <div id="resultsContent" class="text-white"></div>
+        </div>
+    </div>
+
+    <script>
+        let smtpConfigured = false;
+        let recipients = [];
+        let attachmentFiles = [];
+
+        function updateRecipientUI() {
+            const list = document.getElementById('recipientList');
+            const count = document.getElementById('recipientCount');
+            const emptyState = document.getElementById('emptyState');
+            
+            count.textContent = `${recipients.length} recipient${recipients.length !== 1 ? 's' : ''}`;
+            
+            if (recipients.length === 0) {
+                list.innerHTML = '<div id="emptyState" class="py-8 text-center text-slate-500 text-sm">No recipients added yet</div>';
+                return;
+            }
+            
+            list.innerHTML = recipients.map((r, i) => `
+                <div class="flex items-center justify-between px-3 py-2">
+                    <div class="flex-1 min-w-0">
+                        <div class="text-white text-sm truncate">${r.name || 'No name'}</div>
+                        <div class="text-slate-400 text-xs truncate">${r.email}</div>
+                    </div>
+                    <button onclick="removeRecipient(${i})" class="ml-2 text-slate-400 hover:text-red-400 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function addRecipient() {
+            const nameInput = document.getElementById('newName');
+            const emailInput = document.getElementById('newEmail');
+            const email = emailInput.value.trim();
+            
+            if (!email) {
+                emailInput.focus();
+                return;
+            }
+            
+            recipients.push({ name: nameInput.value.trim(), email });
+            nameInput.value = '';
+            emailInput.value = '';
+            emailInput.focus();
+            updateRecipientUI();
+        }
+
+        function removeRecipient(index) {
+            recipients.splice(index, 1);
+            updateRecipientUI();
+        }
+
+        function importFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                const ext = file.name.split('.').pop().toLowerCase();
+
+                if (ext === 'csv') {
+                    const lines = content.split('\n').filter(l => l.trim());
+                    const newRecipients = [];
+                    for (let i = 0; i < lines.length; i++) {
+                        const parts = lines[i].split(',');
+                        if (parts[0] && parts[0].includes('@')) {
+                            newRecipients.push({
+                                name: parts[1] ? parts[1].trim() : '',
+                                email: parts[0].trim()
+                            });
+                        }
+                    }
+                    recipients = [...recipients, ...newRecipients];
+                } else {
+                    const lines = content.split('\n').filter(l => l.trim());
+                    const newRecipients = [];
+                    for (const line of lines) {
+                        const email = line.trim();
+                        if (email.includes('@')) {
+                            newRecipients.push({ name: '', email });
+                        }
+                    }
+                    recipients = [...recipients, ...newRecipients];
+                }
+
+                updateRecipientUI();
+                alert(`Imported ${newRecipients.length} recipients`);
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        function handleAttachments(input) {
+            attachmentFiles = Array.from(input.files);
+            const names = attachmentFiles.map(f => f.name).join(', ');
+            document.getElementById('attachmentNames').textContent = attachmentFiles.length ? `${attachmentFiles.length} file(s): ${names}` : '';
+        }
+
+        function getRecipients() {
+            const jsonInput = document.getElementById('recipients').value.trim();
+            if (jsonInput) {
+                try {
+                    return JSON.parse(jsonInput);
+                } catch (e) {
+                    return recipients;
+                }
+            }
+            return recipients;
+        }
+
+        document.getElementById('newEmail').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addRecipient();
+            }
+        });
+
+        async function checkStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                smtpConfigured = data.smtpConfigured;
+                
+                const statusDot = document.getElementById('statusDot');
+                const statusText = document.getElementById('statusText');
+                const sendBtn = document.getElementById('sendBtn');
+
+                if (smtpConfigured) {
+                    statusDot.className = 'w-2 h-2 rounded-full bg-green-500';
+                    statusText.textContent = `SMTP Ready (${data.host}:${data.port})`;
+                    sendBtn.disabled = false;
+                } else {
+                    statusDot.className = 'w-2 h-2 rounded-full bg-red-500';
+                    statusText.textContent = 'SMTP Not Configured - Set .env file';
+                    sendBtn.disabled = true;
+                }
+            } catch (e) {
+                console.error('Status check failed:', e);
+            }
+        }
+
+        async function sendBulkEmail() {
+            const sendBtn = document.getElementById('sendBtn');
+            const sendIcon = document.getElementById('sendIcon');
+            const sendText = document.getElementById('sendText');
+            const resultsDiv = document.getElementById('results');
+            const resultsContent = document.getElementById('resultsContent');
+
+            sendBtn.disabled = true;
+            sendIcon.classList.add('animate-spin');
+            sendText.textContent = 'Sending...';
+            resultsDiv.classList.add('hidden');
+
+            const attachments = await Promise.all(attachmentFiles.map(async (file) => {
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve({
+                        filename: file.name,
+                        content: reader.result.split(',')[1]
+                    });
+                    reader.readAsDataURL(file);
+                });
+            }));
+
+            const payload = {
+                fromName: document.getElementById('fromName').value || 'Bulk Sender',
+                fromEmail: document.getElementById('fromEmail').value,
+                subject: document.getElementById('subject').value,
+                html: document.getElementById('htmlContent').value,
+                recipients: getRecipients(),
+                attachments
+            };
+
+            try {
+                const res = await fetch('/api/send-bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                resultsDiv.classList.remove('hidden');
+
+                if (data.success) {
+                    resultsContent.innerHTML = `
+                        <div class="grid grid-cols-3 gap-4 mb-4">
+                            <div class="text-center p-4 bg-slate-700/50 rounded-lg">
+                                <div class="text-2xl font-bold text-green-400">${data.results.success}</div>
+                                <div class="text-sm text-slate-400">Sent</div>
+                            </div>
+                            <div class="text-center p-4 bg-slate-700/50 rounded-lg">
+                                <div class="text-2xl font-bold text-red-400">${data.results.failed}</div>
+                                <div class="text-sm text-slate-400">Failed</div>
+                            </div>
+                            <div class="text-center p-4 bg-slate-700/50 rounded-lg">
+                                <div class="text-2xl font-bold text-blue-400">${data.total}</div>
+                                <div class="text-sm text-slate-400">Total</div>
+                            </div>
+                        </div>
+                        ${data.results.errors.length > 0 ? `
+                            <div class="mt-4">
+                                <h3 class="text-sm font-medium text-slate-400 mb-2">Failed Emails:</h3>
+                                <div class="max-h-40 overflow-y-auto bg-slate-900/50 rounded-lg p-3">
+                                    ${data.results.errors.map(e => `<div class="text-sm text-red-400 mb-1">• ${e.email}: ${e.error}</div>`).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    `;
+                } else {
+                    resultsContent.innerHTML = `<div class="text-red-400">Error: ${data.error}</div>`;
+                }
+            } catch (e) {
+                resultsDiv.classList.remove('hidden');
+                resultsContent.innerHTML = `<div class="text-red-400">Request failed: ${e.message}</div>`;
+            }
+
+            sendBtn.disabled = smtpConfigured ? false : true;
+            sendIcon.classList.remove('animate-spin');
+            sendText.textContent = 'Send Emails';
+        }
+
+        checkStatus();
+    </script>
+</body>
+</html>
