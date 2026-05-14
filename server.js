@@ -3,6 +3,7 @@ const express = require('express');
 const nodemailer = require('nodemailer');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -58,6 +59,8 @@ app.post('/api/send-bulk', async (req, res) => {
     const results = { success: 0, failed: 0, errors: [] };
     const batchSize = parseInt(process.env.BATCH_SIZE) || 10;
     const delay = parseInt(process.env.DELAY_BETWEEN_BATCHES) || 2000;
+    const logEntries = [];
+    const timestamp = new Date().toLocaleString();
 
     for (let i = 0; i < recipients.length; i += batchSize) {
         const batch = recipients.slice(i, i + batchSize);
@@ -79,10 +82,12 @@ app.post('/api/send-bulk', async (req, res) => {
 
                 await sendEmail(mailOptions);
                 results.success++;
+                logEntries.push(`[${timestamp}] SUCCESS: ${recipient.email}`);
                 return { email: recipient.email, status: 'success' };
             } catch (error) {
                 results.failed++;
                 results.errors.push({ email: recipient.email, error: error.message });
+                logEntries.push(`[${timestamp}] FAILED: ${recipient.email} - Error: ${error.message}`);
                 return { email: recipient.email, status: 'failed', error: error.message };
             }
         });
@@ -92,6 +97,14 @@ app.post('/api/send-bulk', async (req, res) => {
         if (i + batchSize < recipients.length) {
             await new Promise(resolve => setTimeout(resolve, delay));
         }
+    }
+
+    // Write to note.txt
+    if (logEntries.length > 0) {
+        const logContent = logEntries.join('\n') + '\n';
+        fs.appendFile(path.join(__dirname, 'note.txt'), logContent, (err) => {
+            if (err) console.error('Error writing to note.txt:', err);
+        });
     }
 
     res.json({
