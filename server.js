@@ -4,13 +4,22 @@ const nodemailer = require('nodemailer');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+const { Server } = require('socket.io');
+const db = require('./db');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+});
 
 let transporter = null;
 
@@ -38,6 +47,56 @@ async function sendEmail(mailOptions) {
     return await transport.sendMail(mailOptions);
 }
 
+// Background Processing
+async function processQueue() {
+    db.get("SELECT * FROM campaigns WHERE status = 'processing' LIMIT 1", [], async (err, campaign) => {
+        if (campaign) return; // Already processing
+
+        db.get("SELECT * FROM campaigns WHERE status = 'pending' LIMIT 1", [], async (err, campaign) => {
+            if (err || !campaign) return;
+
+            db.run("UPDATE campaigns SET status = 'processing' WHERE id = ?", [campaign.id]);
+            
+            const recipients = await new Promise((resolve) => {
+                db.all("SELECT * FROM recipients WHERE campaign_id = ?", [campaign.id], (err, rows) => resolve(rows));
+            });
+
+            const batchSize = parseInt(process.env.BATCH_SIZE) || 10;
+            const delay = parseInt(process.env.DELAY_BETWEEN_BATCHES) || 2000;
+            const attachments = JSON.parse(campaign.attachments || '[]');
+
+            const totalRecipients = recipients.length;
+            
+            for (let i = 0; i < recipients.length; i += batchSize) {
+                const batch = recipients.slice(i, i + batchSize);
+                await Promise.all(batch.map(async (recipient) => {
+                    try {
+                        await sendEmail({
+                            from: `"${campaign.from_name || 'Bulk Sender'}" <${campaign.from_email || process.env.SMTP_USER}>`,
+                            to: recipient.email,
+                            subject: replaceVariables(campaign.subject, recipient),
+                            html: replaceVariables(campaign.html, recipient),
+                            attachments: attachments
+                        });
+                        db.run("UPDATE recipients SET status = 'sent' WHERE id = ?", [recipient.id]);
+                    } catch (error) {
+                        db.run("UPDATE recipients SET status = 'failed', error_message = ? WHERE id = ?", [error.message, recipient.id]);
+                    }
+                }));
+
+                const processedCount = Math.min(i + batchSize, totalRecipients);
+                const progress = Math.round((processedCount / totalRecipients) * 100);
+                io.emit('progress', { progress, processedCount, total: totalRecipients, campaignId: campaign.id });
+
+                if (i + batchSize < recipients.length) await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            
+            db.run("UPDATE campaigns SET status = 'completed' WHERE id = ?", [campaign.id]);
+        });
+    });
+}
+
+// Enqueue campaign
 app.post('/api/send-bulk', async (req, res) => {
     const { recipients, subject, html, fromName, fromEmail, attachments } = req.body;
 
@@ -45,73 +104,23 @@ app.post('/api/send-bulk', async (req, res) => {
         return res.status(400).json({ success: false, error: 'No recipients provided' });
     }
 
-    if (!subject || !html) {
-        return res.status(400).json({ success: false, error: 'Subject and HTML content are required' });
-    }
+    db.run(
+        "INSERT INTO campaigns (status, subject, html, from_name, from_email, attachments) VALUES ('pending', ?, ?, ?, ?, ?)",
+        [subject, html, fromName, fromEmail, JSON.stringify(attachments)],
+        function(err) {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            const campaignId = this.lastID;
 
-    if (!transporter) {
-        return res.status(500).json({ 
-            success: false, 
-            error: 'SMTP not configured. Please set SMTP_USER, SMTP_PASS in .env file' 
-        });
-    }
+            const stmt = db.prepare("INSERT INTO recipients (campaign_id, email, name) VALUES (?, ?, ?)");
+            recipients.forEach(r => stmt.run(campaignId, r.email, r.name));
+            stmt.finalize();
 
-    const results = { success: 0, failed: 0, errors: [] };
-    const batchSize = parseInt(process.env.BATCH_SIZE) || 10;
-    const delay = parseInt(process.env.DELAY_BETWEEN_BATCHES) || 2000;
-    const logEntries = [];
-    const timestamp = new Date().toLocaleString();
-
-    for (let i = 0; i < recipients.length; i += batchSize) {
-        const batch = recipients.slice(i, i + batchSize);
-        const promises = batch.map(async (recipient) => {
-            try {
-                const formattedAttachments = (attachments || []).map(att => ({
-                    filename: att.filename,
-                    content: att.content,
-                    encoding: 'base64'
-                }));
-
-                const mailOptions = {
-                    from: `"${fromName || 'Bulk Sender'}" <${fromEmail || process.env.SMTP_USER}>`,
-                    to: recipient.email,
-                    subject: replaceVariables(subject, recipient),
-                    html: replaceVariables(html, recipient),
-                    attachments: formattedAttachments
-                };
-
-                await sendEmail(mailOptions);
-                results.success++;
-                logEntries.push(`[${timestamp}] SUCCESS: ${recipient.email}`);
-                return { email: recipient.email, status: 'success' };
-            } catch (error) {
-                results.failed++;
-                results.errors.push({ email: recipient.email, error: error.message });
-                logEntries.push(`[${timestamp}] FAILED: ${recipient.email} - Error: ${error.message}`);
-                return { email: recipient.email, status: 'failed', error: error.message };
-            }
-        });
-
-        await Promise.all(promises);
-
-        if (i + batchSize < recipients.length) {
-            await new Promise(resolve => setTimeout(resolve, delay));
+            res.json({ success: true, campaignId });
+            
+            // Trigger processing
+            processQueue();
         }
-    }
-
-    // Write to note.txt
-    if (logEntries.length > 0) {
-        const logContent = logEntries.join('\n') + '\n';
-        fs.appendFile(path.join(__dirname, 'note.txt'), logContent, (err) => {
-            if (err) console.error('Error writing to note.txt:', err);
-        });
-    }
-
-    res.json({
-        success: true,
-        total: recipients.length,
-        results
-    });
+    );
 });
 
 function replaceVariables(template, data) {
@@ -130,10 +139,12 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-    console.log(`\n========================================`);
+server.listen(PORT, () => {
+    console.log(`
+========================================`);
     console.log(`🚀 Bulk Email Sender Running`);
     console.log(`========================================`);
     console.log(`📧 Open in browser: http://localhost:${PORT}`);
-    console.log(`========================================\n`);
+    console.log(`========================================
+`);
 });

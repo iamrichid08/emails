@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bulk Email Sender</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { font-family: 'Inter', sans-serif; }
@@ -142,8 +143,15 @@
             </h2>
             <div id="resultsContent" class="text-white"></div>
         </div>
-    </div>
 
+        <div id="progressContainer" class="mt-6 bg-slate-800/50 backdrop-blur rounded-2xl border border-slate-700 p-6 hidden">
+            <h2 class="text-lg font-semibold text-white mb-4">Sending Progress</h2>
+            <div class="w-full bg-slate-700 rounded-full h-4">
+                <div id="progressBar" class="bg-blue-600 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p id="progressText" class="text-sm text-slate-400 mt-2 text-center">0% - Initializing...</p>
+        </div>
+        </div>
     <div id="previewModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm">
         <div class="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-3xl max-h-[90vh] mx-4 flex flex-col">
             <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
@@ -304,17 +312,36 @@
             }
         }
 
+        const socket = io();
+        let socketId = null;
+
+        socket.on('connect', () => {
+            socketId = socket.id;
+        });
+
+        socket.on('progress', (data) => {
+            const container = document.getElementById('progressContainer');
+            const bar = document.getElementById('progressBar');
+            const text = document.getElementById('progressText');
+            
+            container.classList.remove('hidden');
+            bar.style.width = `${data.progress}%`;
+            text.textContent = `${data.progress}% - Processed ${data.processedCount} of ${data.total} emails...`;
+        });
+
         async function sendBulkEmail() {
             const sendBtn = document.getElementById('sendBtn');
             const sendIcon = document.getElementById('sendIcon');
             const sendText = document.getElementById('sendText');
             const resultsDiv = document.getElementById('results');
             const resultsContent = document.getElementById('resultsContent');
+            const progressContainer = document.getElementById('progressContainer');
 
             sendBtn.disabled = true;
             sendIcon.classList.add('animate-spin');
             sendText.textContent = 'Sending...';
             resultsDiv.classList.add('hidden');
+            progressContainer.classList.remove('hidden');
 
             const attachments = await Promise.all(attachmentFiles.map(async (file) => {
                 return new Promise((resolve) => {
@@ -344,38 +371,18 @@
                 });
 
                 const data = await res.json();
-                resultsDiv.classList.remove('hidden');
-
+                
                 if (data.success) {
-                    resultsContent.innerHTML = `
-                        <div class="grid grid-cols-3 gap-4 mb-4">
-                            <div class="text-center p-4 bg-slate-700/50 rounded-lg">
-                                <div class="text-2xl font-bold text-green-400">${data.results.success}</div>
-                                <div class="text-sm text-slate-400">Sent</div>
-                            </div>
-                            <div class="text-center p-4 bg-slate-700/50 rounded-lg">
-                                <div class="text-2xl font-bold text-red-400">${data.results.failed}</div>
-                                <div class="text-sm text-slate-400">Failed</div>
-                            </div>
-                            <div class="text-center p-4 bg-slate-700/50 rounded-lg">
-                                <div class="text-2xl font-bold text-blue-400">${data.total}</div>
-                                <div class="text-sm text-slate-400">Total</div>
-                            </div>
-                        </div>
-                        ${data.results.errors.length > 0 ? `
-                            <div class="mt-4">
-                                <h3 class="text-sm font-medium text-slate-400 mb-2">Failed Emails:</h3>
-                                <div class="max-h-40 overflow-y-auto bg-slate-900/50 rounded-lg p-3">
-                                    ${data.results.errors.map(e => `<div class="text-sm text-red-400 mb-1">• ${e.email}: ${e.error}</div>`).join('')}
-                                </div>
-                            </div>
-                        ` : ''}
-                    `;
+                    resultsContent.innerHTML = `<div class="text-green-400">Campaign ${data.campaignId} successfully queued for sending!</div>`;
+                    resultsDiv.classList.remove('hidden');
                 } else {
+                    resultsDiv.classList.remove('hidden');
                     resultsContent.innerHTML = `<div class="text-red-400">Error: ${data.error}</div>`;
+                    progressContainer.classList.add('hidden');
                 }
             } catch (e) {
                 resultsDiv.classList.remove('hidden');
+                progressContainer.classList.add('hidden');
                 resultsContent.innerHTML = `<div class="text-red-400">Request failed: ${e.message}</div>`;
             }
 
