@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const { Server } = require('socket.io');
-const db = require('./db');
+const storage = require('./storage');
 
 const app = express();
 const server = http.createServer(app);
@@ -49,51 +49,46 @@ async function sendEmail(mailOptions) {
 
 // Background Processing
 async function processQueue() {
-    db.get("SELECT * FROM campaigns WHERE status = 'processing' LIMIT 1", [], async (err, campaign) => {
-        if (campaign) return; // Already processing
+    const allCampaigns = storage.getAllCampaigns();
+    if (allCampaigns.find(c => c.status === 'processing')) return; 
 
-        db.get("SELECT * FROM campaigns WHERE status = 'pending' LIMIT 1", [], async (err, campaign) => {
-            if (err || !campaign) return;
+    const campaign = allCampaigns.find(c => c.status === 'pending');
+    if (!campaign) return;
 
-            db.run("UPDATE campaigns SET status = 'processing' WHERE id = ?", [campaign.id]);
-            
-            const recipients = await new Promise((resolve) => {
-                db.all("SELECT * FROM recipients WHERE campaign_id = ?", [campaign.id], (err, rows) => resolve(rows));
-            });
+    storage.updateCampaign(campaign.id, { status: 'processing' });
+    
+    const recipients = storage.getRecipients(campaign.id);
+    const batchSize = parseInt(process.env.BATCH_SIZE) || 10;
+    const delay = parseInt(process.env.DELAY_BETWEEN_BATCHES) || 2000;
+    const attachments = JSON.parse(campaign.attachments || '[]');
 
-            const batchSize = parseInt(process.env.BATCH_SIZE) || 10;
-            const delay = parseInt(process.env.DELAY_BETWEEN_BATCHES) || 2000;
-            const attachments = JSON.parse(campaign.attachments || '[]');
-
-            const totalRecipients = recipients.length;
-            
-            for (let i = 0; i < recipients.length; i += batchSize) {
-                const batch = recipients.slice(i, i + batchSize);
-                await Promise.all(batch.map(async (recipient) => {
-                    try {
-                        await sendEmail({
-                            from: `"${campaign.from_name || 'Bulk Sender'}" <${campaign.from_email || process.env.SMTP_USER}>`,
-                            to: recipient.email,
-                            subject: replaceVariables(campaign.subject, recipient),
-                            html: replaceVariables(campaign.html, recipient),
-                            attachments: attachments
-                        });
-                        db.run("UPDATE recipients SET status = 'sent' WHERE id = ?", [recipient.id]);
-                    } catch (error) {
-                        db.run("UPDATE recipients SET status = 'failed', error_message = ? WHERE id = ?", [error.message, recipient.id]);
-                    }
-                }));
-
-                const processedCount = Math.min(i + batchSize, totalRecipients);
-                const progress = Math.round((processedCount / totalRecipients) * 100);
-                io.emit('progress', { progress, processedCount, total: totalRecipients, campaignId: campaign.id });
-
-                if (i + batchSize < recipients.length) await new Promise(resolve => setTimeout(resolve, delay));
+    const totalRecipients = recipients.length;
+    
+    for (let i = 0; i < recipients.length; i += batchSize) {
+        const batch = recipients.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (recipient) => {
+            try {
+                await sendEmail({
+                    from: `"${campaign.from_name || 'Bulk Sender'}" <${campaign.from_email || process.env.SMTP_USER}>`,
+                    to: recipient.email,
+                    subject: replaceVariables(campaign.subject, recipient),
+                    html: replaceVariables(campaign.html, recipient),
+                    attachments: attachments
+                });
+                storage.updateRecipient(recipient.id, { status: 'sent' });
+            } catch (error) {
+                storage.updateRecipient(recipient.id, { status: 'failed', error_message: error.message });
             }
-            
-            db.run("UPDATE campaigns SET status = 'completed' WHERE id = ?", [campaign.id]);
-        });
-    });
+        }));
+
+        const processedCount = Math.min(i + batchSize, totalRecipients);
+        const progress = Math.round((processedCount / totalRecipients) * 100);
+        io.emit('progress', { progress, processedCount, total: totalRecipients, campaignId: campaign.id });
+
+        if (i + batchSize < recipients.length) await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    
+    storage.updateCampaign(campaign.id, { status: 'completed' });
 }
 
 // Enqueue campaign
@@ -104,23 +99,21 @@ app.post('/api/send-bulk', async (req, res) => {
         return res.status(400).json({ success: false, error: 'No recipients provided' });
     }
 
-    db.run(
-        "INSERT INTO campaigns (status, subject, html, from_name, from_email, attachments) VALUES ('pending', ?, ?, ?, ?, ?)",
-        [subject, html, fromName, fromEmail, JSON.stringify(attachments)],
-        function(err) {
-            if (err) return res.status(500).json({ success: false, error: err.message });
-            const campaignId = this.lastID;
+    const campaignId = storage.addCampaign({
+        status: 'pending',
+        subject,
+        html,
+        from_name: fromName,
+        from_email: fromEmail,
+        attachments: JSON.stringify(attachments)
+    });
+    
+    storage.addRecipients(campaignId, recipients);
 
-            const stmt = db.prepare("INSERT INTO recipients (campaign_id, email, name) VALUES (?, ?, ?)");
-            recipients.forEach(r => stmt.run(campaignId, r.email, r.name));
-            stmt.finalize();
-
-            res.json({ success: true, campaignId });
-            
-            // Trigger processing
-            processQueue();
-        }
-    );
+    res.json({ success: true, campaignId });
+    
+    // Trigger processing
+    processQueue();
 });
 
 function replaceVariables(template, data) {
