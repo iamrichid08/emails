@@ -50,7 +50,16 @@
                     </div>
 
                     <div>
-                        <label class="block text-sm text-slate-400 mb-1">HTML Content (use {{variable}} for personalization)</label>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm text-slate-400">HTML Content (use {{variable}} for personalization)</label>
+                            <button type="button" onclick="previewHtml()" class="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                </svg>
+                                Preview
+                            </button>
+                        </div>
                         <textarea id="htmlContent" rows="8" placeholder="<h1>Hello {{name}}!</h1>&#10;<p>Welcome to our service.</p>" class="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono text-sm"></textarea>
                     </div>
 
@@ -132,6 +141,22 @@
                 Results
             </h2>
             <div id="resultsContent" class="text-white"></div>
+        </div>
+    </div>
+
+    <div id="previewModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div class="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-3xl max-h-[90vh] mx-4 flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+                <h3 class="text-lg font-semibold text-white">Email Preview</h3>
+                <button onclick="closePreview()" class="text-slate-400 hover:text-white transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 overflow-auto p-6 bg-white rounded-b-2xl">
+                <iframe id="previewFrame" class="w-full h-[70vh] border-0 rounded-lg"></iframe>
+            </div>
         </div>
     </div>
 
@@ -358,6 +383,63 @@
             sendIcon.classList.remove('animate-spin');
             sendText.textContent = 'Send Emails';
         }
+
+        function closePreview() {
+            document.getElementById('previewModal').classList.add('hidden');
+            document.getElementById('previewModal').classList.remove('flex');
+        }
+
+        function previewHtml() {
+            const modal = document.getElementById('previewModal');
+            const frame = document.getElementById('previewFrame');
+            let html = document.getElementById('htmlContent').value;
+
+            const firstRecipient = recipients.length > 0 ? recipients[0] : {};
+            html = html.replace(/\{\{(\w+)\}\}/g, (_, key) => firstRecipient[key] || `{{${key}}}`);
+
+            const subject = document.getElementById('subject').value || '(No subject)';
+            const fromName = document.getElementById('fromName').value || 'Bulk Sender';
+            const fromEmail = document.getElementById('fromEmail').value || 'sender@example.com';
+
+            const fullDoc = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <script src="https://cdn.tailwindcss.com"><\/script>
+                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+                    <style>
+                        * { font-family: 'Inter', sans-serif; margin: 0; padding: 0; box-sizing: border-box; }
+                        body { padding: 24px; background: #f8fafc; }
+                        .email-header { border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 24px; }
+                        .email-header div { color: #64748b; font-size: 13px; margin-bottom: 4px; }
+                        .email-header span { color: #334155; font-weight: 500; }
+                    </style>
+                </head>
+                <body>
+                    <div class="email-header">
+                        <div>From: <span>${fromName} &lt;${fromEmail}&gt;</span></div>
+                        <div>Subject: <span>${subject}</span></div>
+                        ${firstRecipient.email ? `<div>To: <span>${firstRecipient.name || 'No name'} &lt;${firstRecipient.email}&gt;</span></div>` : ''}
+                    </div>
+                    <div class="text-slate-700">${html}</div>
+                </body>
+                </html>
+            `;
+
+            frame.srcdoc = fullDoc;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        document.getElementById('previewModal').addEventListener('click', function(e) {
+            if (e.target === this) closePreview();
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closePreview();
+        });
 
         checkStatus();
     </script>
